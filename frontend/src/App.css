@@ -179,6 +179,12 @@
   border-bottom: none;
 }
 
+.toggle-row--sub {
+  padding-left: 0.65rem;
+  font-size: 0.84rem;
+  color: var(--pe-muted);
+}
+
 .switch {
   width: 44px;
   height: 24px;

@@ -1,4 +1,4 @@
-"""OpenCV vision signals; optional ONNX NSFW when models/nsfw.onnx exists."""
+"""OpenCV vision signals; optional ONNX NSFW or Hugging Face EfficientNet."""
 
 from __future__ import annotations
 
@@ -16,6 +16,16 @@ logger = logging.getLogger(__name__)
 _face_cascade: Any = None
 _nsfw_sess: Any = None
 _nsfw_tried: bool = False
+
+_hf_processor: Any = None
+_hf_model: Any = None
+_hf_load_failed: bool = False
+
+
+def reset_hf_load_state() -> None:
+    """Clear a failed HF load so the next frame can retry (e.g. after UI toggles on)."""
+    global _hf_load_failed
+    _hf_load_failed = False
 
 
 def _get_face_cascade() -> Any:
@@ -109,6 +119,91 @@ def _skin_proxy_nsfw(frame: np.ndarray) -> float:
     return float(min(1.0, max(0.0, (ratio - 0.15) * 2.0)))
 
 
+def _load_hf_efficientnet() -> tuple[Any, Any]:
+    """Lazy-load HF EfficientNet + image processor (once per process if successful)."""
+    global _hf_processor, _hf_model, _hf_load_failed
+    if _hf_processor is not None and _hf_model is not None:
+        return _hf_processor, _hf_model
+    if _hf_load_failed:
+        return None, None
+    model_id = os.environ.get(
+        "PRIVATEEDGE_HF_MODEL_ID",
+        "Nafi007/EfficientNetB0",
+    )
+    try:
+        import torch
+        from transformers import AutoImageProcessor, EfficientNetForImageClassification
+    except ImportError as e:
+        logger.warning("HF EfficientNet skipped (install torch+transformers): %s", e)
+        _hf_load_failed = True
+        return None, None
+    try:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        _hf_processor = AutoImageProcessor.from_pretrained(model_id)
+        _hf_model = EfficientNetForImageClassification.from_pretrained(model_id)
+        _hf_model.to(device)
+        _hf_model.eval()
+        logger.info("HF EfficientNet NSFW loaded: %s on %s", model_id, device)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("HF EfficientNet not loaded: %s", e)
+        _hf_processor = None
+        _hf_model = None
+        _hf_load_failed = True
+    return _hf_processor, _hf_model
+
+
+def _probs_to_p_nsfw(probs: np.ndarray, id2label: dict[Any, Any]) -> float:
+    """Map classifier probs to a single [0,1] NSFW-style score using id2label."""
+    labels: dict[int, str] = {}
+    for k, v in id2label.items():
+        try:
+            labels[int(k)] = str(v).lower()
+        except (TypeError, ValueError):
+            continue
+    nsfw_kw = ("nsfw", "porn", "explicit", "hentai", "nude", "sexual", "unsafe", "adult")
+    safe_kw = ("safe", "sfw", "neutral", "drawing", "drawings", "normal")
+    nsfw_mass = 0.0
+    for i, p in enumerate(probs):
+        lab = labels.get(i, "")
+        if any(w in lab for w in nsfw_kw):
+            nsfw_mass += float(p)
+        elif any(w in lab for w in safe_kw):
+            continue
+        elif len(probs) == 2:
+            # Binary: assume index 1 is the positive / sensitive class if unlabeled
+            if i == 1:
+                nsfw_mass += float(p)
+    if nsfw_mass > 0.0:
+        return float(min(1.0, nsfw_mass))
+    if len(probs) == 2:
+        return float(probs[1])
+    return float(min(1.0, float(np.max(probs))))
+
+
+def _run_nsfw_hf(frame: np.ndarray) -> float:
+    import cv2
+    from PIL import Image
+
+    proc, mdl = _load_hf_efficientnet()
+    if proc is None or mdl is None:
+        return _skin_proxy_nsfw(frame)
+    try:
+        import torch
+    except ImportError:
+        return _skin_proxy_nsfw(frame)
+
+    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    image = Image.fromarray(rgb)
+    inputs = proc(images=image, return_tensors="pt")
+    device = next(mdl.parameters()).device
+    inputs = {k: v.to(device) for k, v in inputs.items()}
+    with torch.no_grad():
+        logits = mdl(**inputs).logits
+    probs = torch.softmax(logits, dim=-1).cpu().numpy().reshape(-1)
+    id2label = getattr(mdl.config, "id2label", None) or {}
+    return _probs_to_p_nsfw(probs, id2label)
+
+
 def _run_nsfw_onnx(sess: Any, frame: np.ndarray) -> float:
     import cv2
 
@@ -133,14 +228,25 @@ def _run_nsfw_onnx(sess: Any, frame: np.ndarray) -> float:
         return _skin_proxy_nsfw(frame)
 
 
-def analyze_frame_bgr(frame: np.ndarray) -> ModelScores:
-    """Compute vision-only scores from a BGR frame."""
+def analyze_frame_bgr(
+    frame: np.ndarray,
+    *,
+    use_hf_efficientnet: bool = False,
+) -> ModelScores:
+    """Compute vision-only scores from a BGR frame.
+
+    When ``use_hf_efficientnet`` is True (e.g. UI toggle), run HF EfficientNet if
+    no ONNX NSFW session is available. Env ``PRIVATEEDGE_USE_HF_EFFICIENTNET``
+    can also be set; the pipeline merges that with runtime config.
+    """
     p_doc = _document_likelihood(frame)
     p_face_other = _face_other_score(frame)
 
     sess = _load_nsfw_session()
     if sess is not None:
         p_nsfw = _run_nsfw_onnx(sess, frame)
+    elif use_hf_efficientnet:
+        p_nsfw = _run_nsfw_hf(frame)
     else:
         p_nsfw = _skin_proxy_nsfw(frame)
 

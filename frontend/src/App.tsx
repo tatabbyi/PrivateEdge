@@ -5,6 +5,8 @@ type Config = {
   face_masking: boolean;
   text_document_blocking: boolean;
   nsfw_detection: boolean;
+  /** PyTorch + Hugging Face EfficientNet when no local ONNX NSFW model */
+  hf_efficientnet_nsfw: boolean;
   audio_pii_filtering: boolean;
   mode: string;
   detection_sensitivity: number;
@@ -21,11 +23,21 @@ type Telemetry = {
   npu_percent: number;
 };
 
+/** Vision/audio signals from the pipeline (same WebSocket as frames). */
+type LiveScores = {
+  p_nsfw: number;
+  p_doc: number;
+  p_face_other: number;
+  p_pii_audio: number;
+  anger: number;
+};
+
 type WsPayload = {
   kind: string;
   raw_jpeg?: string;
   protected_jpeg?: string;
   telemetry?: Telemetry;
+  scores?: LiveScores;
   events?: { message: string; kind: string }[];
   audio?: { id: string; label: string; tone: string }[];
 };
@@ -53,6 +65,7 @@ export function App() {
     latency_ms: 0,
     npu_percent: 0,
   });
+  const [liveScores, setLiveScores] = useState<LiveScores | null>(null);
   const [rawImg, setRawImg] = useState<string | null>(null);
   const [protImg, setProtImg] = useState<string | null>(null);
   const [events, setEvents] = useState<{ message: string; kind: string }[]>([]);
@@ -139,6 +152,7 @@ export function App() {
       try {
         const data = JSON.parse(ev.data) as WsPayload;
         if (data.telemetry) setTelemetry(data.telemetry);
+        if (data.scores) setLiveScores(data.scores);
         if (data.raw_jpeg) setRawImg(data.raw_jpeg);
         if (data.protected_jpeg) setProtImg(data.protected_jpeg);
         if (data.events) setEvents(data.events);
@@ -228,6 +242,15 @@ export function App() {
             <label>NPU</label>
             <strong>{telemetry.npu_percent.toFixed(0)}%</strong>
           </div>
+          {liveScores && (
+            <div
+              className="metric metric-scores"
+              title="Live model signals (NSFW uses HF EfficientNet when that toggle is on and no ONNX NSFW model is loaded)"
+            >
+              <label>NSFW</label>
+              <strong>{liveScores.p_nsfw.toFixed(2)}</strong>
+            </div>
+          )}
           <div className="battery" title="Local power (telemetry)">
             🔋
           </div>
@@ -300,6 +323,17 @@ export function App() {
               className={`switch ${config.nsfw_detection ? "on" : ""}`}
               aria-pressed={config.nsfw_detection}
               onClick={() => toggle("nsfw_detection")}
+            />
+          </div>
+          <div className="toggle-row toggle-row--sub">
+            <span title="Uses Hugging Face EfficientNet (PyTorch) when no models/nsfw.onnx is present">
+              HF EfficientNet NSFW
+            </span>
+            <button
+              type="button"
+              className={`switch ${config.hf_efficientnet_nsfw ? "on" : ""}`}
+              aria-pressed={config.hf_efficientnet_nsfw}
+              onClick={() => toggle("hf_efficientnet_nsfw")}
             />
           </div>
           <div className="toggle-row">

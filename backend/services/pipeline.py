@@ -6,6 +6,7 @@ Uses OpenCV + optional ONNX NSFW; microphone + faster-whisper when installed.
 from __future__ import annotations
 
 import base64
+import os
 import threading
 import time
 from typing import Any
@@ -17,7 +18,7 @@ from channels.layers import get_channel_layer
 from capture.video import VideoSource
 from inference.audio_worker import GLOBAL_AUDIO_BUF, ensure_audio_worker
 from inference.scoring import merge_vision_audio_scores
-from inference.vision import analyze_frame_bgr
+from inference.vision import analyze_frame_bgr, reset_hf_load_state
 from policy.types import MaskingDecision, ModelScores
 from render.blur import apply_policy_blur
 from services.state import STATE
@@ -29,6 +30,7 @@ _ema_fps = 30.0
 _last_broadcast = 0.0
 _npu_base: float | None = None
 _prev_emit: dict[str, bool] = {"mute": False, "blur": False, "silent": False}
+_prev_hf_efficientnet: bool = False
 
 
 def _npu_percent() -> float:
@@ -91,7 +93,7 @@ def _maybe_log_events(scores: ModelScores, decision: MaskingDecision) -> None:
 
 
 def _loop() -> None:
-    global _video, _ema_fps, _last_broadcast
+    global _video, _ema_fps, _last_broadcast, _prev_hf_efficientnet
     ensure_audio_worker()
     if _video is None:
         _video = VideoSource(0)
@@ -106,7 +108,14 @@ def _loop() -> None:
             continue
 
         STATE.sync_policy_from_config()
-        v_scores = analyze_frame_bgr(frame)
+        use_hf = STATE.config.hf_efficientnet_nsfw or (
+            os.environ.get("PRIVATEEDGE_USE_HF_EFFICIENTNET", "0").lower()
+            in ("1", "true", "yes")
+        )
+        if use_hf and not _prev_hf_efficientnet:
+            reset_hf_load_state()
+        _prev_hf_efficientnet = use_hf
+        v_scores = analyze_frame_bgr(frame, use_hf_efficientnet=use_hf)
         a_scores, _, _ = GLOBAL_AUDIO_BUF.snapshot()
         scores = merge_vision_audio_scores(v_scores, a_scores)
 

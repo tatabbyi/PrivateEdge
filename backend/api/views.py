@@ -32,6 +32,7 @@ class ConfigView(APIView):
             "blur_strength_secondary",
             "mute_sensitivity",
             "protection_enabled",
+            "hf_efficientnet_nsfw",
         ):
             if key in data:
                 setattr(cfg, key, data[key])
