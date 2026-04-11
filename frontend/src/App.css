@@ -134,6 +134,23 @@
   background: var(--pe-elevated);
 }
 
+.feed-warning {
+  margin: 0;
+  padding: 0.45rem 0.75rem;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  color: #e8b4b4;
+  background: rgba(120, 40, 40, 0.25);
+  border-bottom: 1px solid var(--pe-border);
+}
+
+.feed-warning code {
+  font-size: 0.7rem;
+  padding: 0.05rem 0.25rem;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.35);
+}
+
 .feed-card .img {
   flex: 1;
   min-height: 200px;
@@ -148,6 +165,22 @@
   height: 100%;
   object-fit: contain;
   max-height: 320px;
+}
+
+.placeholder.muted {
+  color: var(--pe-muted);
+  font-size: 0.85rem;
+}
+
+.sidebar-hint {
+  font-size: 0.75rem;
+  color: var(--pe-muted);
+  margin: 0 0 0.65rem;
+  line-height: 1.35;
+}
+
+.sidebar h2:not(:first-child) {
+  margin-top: 1rem;
 }
 
 .sidebar {

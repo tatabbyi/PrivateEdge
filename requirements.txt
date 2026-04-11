@@ -7,6 +7,7 @@ channels>=4.0
 daphne>=4.0
 numpy>=1.26
 opencv-python-headless>=4.9
+mss>=9.0
 sounddevice>=0.5
 faster-whisper>=1.0.0
 pyvirtualcam>=0.11.0

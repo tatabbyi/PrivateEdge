@@ -27,6 +27,9 @@ class RuntimeConfig:
     blur_strength_secondary: float = 0.35
     mute_sensitivity: float = 0.5
     protection_enabled: bool = True
+    # Webcam + screen share capture (pipeline merges vision scores from both)
+    webcam_enabled: bool = True
+    screen_share_enabled: bool = True
     # Hugging Face EfficientNet NSFW (torch+transformers); ONNX still wins if present
     hf_efficientnet_nsfw: bool = False
 

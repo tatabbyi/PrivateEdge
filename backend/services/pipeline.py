@@ -15,9 +15,10 @@ import numpy as np
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 
+from capture.screen import ScreenSource
 from capture.video import VideoSource
 from inference.audio_worker import GLOBAL_AUDIO_BUF, ensure_audio_worker
-from inference.scoring import merge_vision_audio_scores
+from inference.scoring import merge_vision_audio_scores, merge_vision_streams
 from inference.vision import analyze_frame_bgr, reset_hf_load_state
 from policy.types import MaskingDecision, ModelScores
 from render.blur import apply_policy_blur
@@ -26,6 +27,7 @@ from services.state import STATE
 _pipeline_thread: threading.Thread | None = None
 _started = False
 _video: VideoSource | None = None
+_screen: ScreenSource | None = None
 _ema_fps = 30.0
 _last_broadcast = 0.0
 _npu_base: float | None = None
@@ -44,6 +46,10 @@ def _npu_percent() -> float:
         except Exception:  # noqa: BLE001
             _npu_base = 30.0
     return float(_npu_base)
+
+
+def _placeholder_bgr(width: int = 640, height: int = 480) -> np.ndarray:
+    return np.full((height, width, 3), 28, dtype=np.uint8)
 
 
 def _encode_jpeg_b64(frame: np.ndarray) -> str:
@@ -93,38 +99,65 @@ def _maybe_log_events(scores: ModelScores, decision: MaskingDecision) -> None:
 
 
 def _loop() -> None:
-    global _video, _ema_fps, _last_broadcast, _prev_hf_efficientnet
+    global _video, _screen, _ema_fps, _last_broadcast, _prev_hf_efficientnet
     ensure_audio_worker()
     if _video is None:
-        _video = VideoSource(0)
+        _video = VideoSource(int(os.environ.get("PRIVATEEDGE_WEBCAM_INDEX", "0")))
+    if _screen is None:
+        _screen = ScreenSource()
 
     last_emit = time.perf_counter()
 
     while True:
         loop_start = time.perf_counter()
-        ok, frame = _video.read_bgr()
-        if not ok:
-            time.sleep(0.05)
-            continue
-
         STATE.sync_policy_from_config()
-        use_hf = STATE.config.hf_efficientnet_nsfw or (
+        cfg = STATE.config
+
+        if cfg.webcam_enabled:
+            ok_w, frame_w = _video.read_bgr()
+            if not ok_w:
+                frame_w = _placeholder_bgr()
+        else:
+            frame_w = _placeholder_bgr()
+
+        screen_capture_live = False
+        if cfg.screen_share_enabled:
+            ok_s, frame_s = _screen.read_bgr()
+            if not ok_s:
+                frame_s = _placeholder_bgr(640, 400)
+            screen_capture_live = not _screen.last_was_fallback
+        else:
+            frame_s = _placeholder_bgr(640, 400)
+
+        use_hf = cfg.hf_efficientnet_nsfw or (
             os.environ.get("PRIVATEEDGE_USE_HF_EFFICIENTNET", "0").lower()
             in ("1", "true", "yes")
         )
         if use_hf and not _prev_hf_efficientnet:
             reset_hf_load_state()
         _prev_hf_efficientnet = use_hf
-        v_scores = analyze_frame_bgr(frame, use_hf_efficientnet=use_hf)
+
+        zw = (
+            ModelScores()
+            if not cfg.webcam_enabled
+            else analyze_frame_bgr(frame_w, use_hf_efficientnet=use_hf)
+        )
+        zs = (
+            ModelScores()
+            if not cfg.screen_share_enabled
+            else analyze_frame_bgr(frame_s, use_hf_efficientnet=use_hf)
+        )
+        v_scores = merge_vision_streams(zw, zs)
         a_scores, _, _ = GLOBAL_AUDIO_BUF.snapshot()
         scores = merge_vision_audio_scores(v_scores, a_scores)
 
         decision = STATE.engine.decide(scores)
-        if not STATE.config.protection_enabled:
+        if not cfg.protection_enabled:
             decision = MaskingDecision()
 
-        blur = STATE.config.blur_strength
-        protected = _apply_protection(decision, frame, blur)
+        blur = cfg.blur_strength
+        prot_w = _apply_protection(decision, frame_w, blur)
+        prot_s = _apply_protection(decision, frame_s, blur)
 
         now = time.perf_counter()
         elapsed = max(now - loop_start, 1e-6)
@@ -163,8 +196,10 @@ def _loop() -> None:
 
         payload = {
             "kind": "frame",
-            "raw_jpeg": _encode_jpeg_b64(frame),
-            "protected_jpeg": _encode_jpeg_b64(protected),
+            "raw_webcam_jpeg": _encode_jpeg_b64(frame_w),
+            "raw_screen_jpeg": _encode_jpeg_b64(frame_s),
+            "protected_webcam_jpeg": _encode_jpeg_b64(prot_w),
+            "protected_screen_jpeg": _encode_jpeg_b64(prot_s),
             "telemetry": {
                 "fps": STATE.telemetry.fps,
                 "latency_ms": STATE.telemetry.latency_ms,
@@ -184,6 +219,7 @@ def _loop() -> None:
             },
             "events": list(STATE.event_log)[:12],
             "audio": audio_items,
+            "screen_capture_live": screen_capture_live,
         }
         if now - _last_broadcast >= 0.066:
             _broadcast(payload)

@@ -15,6 +15,10 @@ type Config = {
   blur_strength_secondary: number;
   mute_sensitivity: number;
   protection_enabled: boolean;
+  /** When false, webcam capture and inference for that source are off */
+  webcam_enabled: boolean;
+  /** When false, screen capture and inference for that source are off */
+  screen_share_enabled: boolean;
 };
 
 type Telemetry = {
@@ -34,8 +38,12 @@ type LiveScores = {
 
 type WsPayload = {
   kind: string;
-  raw_jpeg?: string;
-  protected_jpeg?: string;
+  raw_webcam_jpeg?: string;
+  raw_screen_jpeg?: string;
+  protected_webcam_jpeg?: string;
+  protected_screen_jpeg?: string;
+  /** False when showing test pattern (real desktop capture failed). */
+  screen_capture_live?: boolean;
   telemetry?: Telemetry;
   scores?: LiveScores;
   events?: { message: string; kind: string }[];
@@ -47,6 +55,19 @@ const API_BASE =
   (import.meta.env.VITE_API_BASE as string | undefined)?.trim() ?? "";
 
 const CONFIG_FETCH_MS = 12_000;
+
+/** Ensure booleans from API are real booleans (defaults for older responses). */
+function normalizeConfig(c: Config): Config {
+  return {
+    ...c,
+    webcam_enabled:
+      typeof c.webcam_enabled === "boolean" ? c.webcam_enabled : true,
+    screen_share_enabled:
+      typeof c.screen_share_enabled === "boolean"
+        ? c.screen_share_enabled
+        : true,
+  };
+}
 
 /** WebSocket to current page host (Vite proxies `/ws` → backend). Optional VITE_WS_URL override. */
 function wsUrl(): string {
@@ -66,8 +87,12 @@ export function App() {
     npu_percent: 0,
   });
   const [liveScores, setLiveScores] = useState<LiveScores | null>(null);
-  const [rawImg, setRawImg] = useState<string | null>(null);
-  const [protImg, setProtImg] = useState<string | null>(null);
+  /** Protected preview only (one tile per source). */
+  const [webcamPreview, setWebcamPreview] = useState<string | null>(null);
+  const [screenPreview, setScreenPreview] = useState<string | null>(null);
+  const [screenCaptureLive, setScreenCaptureLive] = useState<boolean | null>(
+    null
+  );
   const [events, setEvents] = useState<{ message: string; kind: string }[]>([]);
   const [audioLines, setAudioLines] = useState<
     { id: string; label: string; tone: string }[]
@@ -105,7 +130,7 @@ export function App() {
       if (!j?.config) {
         throw new Error("missing config in response");
       }
-      setConfig(j.config);
+      setConfig(normalizeConfig(j.config));
     } catch (e) {
       clearTimeout(timer);
       let msg = "Could not load configuration";
@@ -121,20 +146,26 @@ export function App() {
   }, []);
 
   const patchConfig = useCallback(async (partial: Partial<Config>) => {
-    const r = await fetch(`${API_BASE}/api/config/`, {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify(partial),
-    });
-    const raw = await r.text();
-    if (!r.ok) {
-      throw new Error(`${r.status} ${r.statusText}`);
+    try {
+      const r = await fetch(`${API_BASE}/api/config/`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify(partial),
+      });
+      const raw = await r.text();
+      if (!r.ok) {
+        console.error("patchConfig failed:", r.status, raw.slice(0, 200));
+        throw new Error(`${r.status} ${r.statusText}`);
+      }
+      const j = JSON.parse(raw) as { config?: Config };
+      if (j?.config) setConfig(normalizeConfig(j.config));
+    } catch (e) {
+      console.error("patchConfig:", e);
+      throw e;
     }
-    const j = JSON.parse(raw) as { config?: Config };
-    if (j?.config) setConfig(j.config);
   }, []);
 
   useEffect(() => {
@@ -153,8 +184,12 @@ export function App() {
         const data = JSON.parse(ev.data) as WsPayload;
         if (data.telemetry) setTelemetry(data.telemetry);
         if (data.scores) setLiveScores(data.scores);
-        if (data.raw_jpeg) setRawImg(data.raw_jpeg);
-        if (data.protected_jpeg) setProtImg(data.protected_jpeg);
+        if (data.protected_webcam_jpeg)
+          setWebcamPreview(data.protected_webcam_jpeg);
+        if (data.protected_screen_jpeg)
+          setScreenPreview(data.protected_screen_jpeg);
+        if (typeof data.screen_capture_live === "boolean")
+          setScreenCaptureLive(data.screen_capture_live);
         if (data.events) setEvents(data.events);
         if (data.audio) setAudioLines(data.audio);
       } catch {
@@ -166,7 +201,10 @@ export function App() {
 
   const toggle = (key: keyof Config) => {
     if (!config) return;
-    patchConfig({ [key]: !config[key] } as Partial<Config>);
+    const cur = config[key];
+    if (typeof cur === "boolean") {
+      void patchConfig({ [key]: !cur } as Partial<Config>);
+    }
   };
 
   const modeOptions = useMemo(
@@ -260,34 +298,73 @@ export function App() {
       <div className="main-grid">
         <section className="feeds">
           <article className="feed-card">
-            <header>Your feed</header>
+            <header>Webcam</header>
             <div className="img">
-              {rawImg ? (
-                <img
-                  alt="Raw camera"
-                  src={`data:image/jpeg;base64,${rawImg}`}
-                />
+              {config.webcam_enabled ? (
+                webcamPreview ? (
+                  <img
+                    alt="Webcam — protected preview"
+                    src={`data:image/jpeg;base64,${webcamPreview}`}
+                  />
+                ) : (
+                  <span className="placeholder">Waiting for frames…</span>
+                )
               ) : (
-                <span className="placeholder">Waiting for frames…</span>
+                <span className="placeholder muted">Webcam off</span>
               )}
             </div>
           </article>
           <article className="feed-card">
-            <header>Protected feed</header>
+            <header>Screen share</header>
+            {config.screen_share_enabled &&
+              screenCaptureLive === false && (
+                <p className="feed-warning">
+                  Not your real screen — capture failed (test pattern). On
+                  Wayland install <code>grim</code>; on X11 ensure{" "}
+                  <code>DISPLAY</code> is set. Check the API logs.
+                </p>
+              )}
             <div className="img">
-              {protImg ? (
-                <img
-                  alt="Protected output"
-                  src={`data:image/jpeg;base64,${protImg}`}
-                />
+              {config.screen_share_enabled ? (
+                screenPreview ? (
+                  <img
+                    alt="Screen — protected preview"
+                    src={`data:image/jpeg;base64,${screenPreview}`}
+                  />
+                ) : (
+                  <span className="placeholder">Waiting for frames…</span>
+                )
               ) : (
-                <span className="placeholder">Protected preview</span>
+                <span className="placeholder muted">Screen share off</span>
               )}
             </div>
           </article>
         </section>
 
         <aside className="sidebar">
+          <h2>Video sources</h2>
+          <p className="sidebar-hint">
+            Turn sources on or off. Policy uses the max of webcam and screen
+            scores when both run.
+          </p>
+          <div className="toggle-row">
+            <span>Webcam</span>
+            <button
+              type="button"
+              className={`switch ${config.webcam_enabled ? "on" : ""}`}
+              aria-pressed={config.webcam_enabled}
+              onClick={() => toggle("webcam_enabled")}
+            />
+          </div>
+          <div className="toggle-row">
+            <span>Screen share</span>
+            <button
+              type="button"
+              className={`switch ${config.screen_share_enabled ? "on" : ""}`}
+              aria-pressed={config.screen_share_enabled}
+              onClick={() => toggle("screen_share_enabled")}
+            />
+          </div>
           <h2>Protection settings</h2>
           <div className="toggle-row">
             <span>Protection (blur &amp; mute)</span>

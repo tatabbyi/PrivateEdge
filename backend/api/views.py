@@ -4,12 +4,26 @@ from __future__ import annotations
 
 from typing import Any
 
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import csrf_exempt
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from services.state import STATE
 
 
+def _as_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        s = value.strip().lower()
+        if s in ("0", "false", "no", "off", ""):
+            return False
+        return s in ("1", "true", "yes", "on")
+    return bool(value)
+
+
+@method_decorator(csrf_exempt, name="dispatch")
 class ConfigView(APIView):
     """GET/PATCH runtime configuration (toggles, sliders, mode)."""
 
@@ -20,6 +34,18 @@ class ConfigView(APIView):
     def patch(self, request: Any) -> Response:
         data = request.data
         cfg = STATE.config
+        bool_keys = frozenset(
+            {
+                "face_masking",
+                "text_document_blocking",
+                "nsfw_detection",
+                "audio_pii_filtering",
+                "protection_enabled",
+                "webcam_enabled",
+                "screen_share_enabled",
+                "hf_efficientnet_nsfw",
+            }
+        )
         for key in (
             "face_masking",
             "text_document_blocking",
@@ -32,9 +58,15 @@ class ConfigView(APIView):
             "blur_strength_secondary",
             "mute_sensitivity",
             "protection_enabled",
+            "webcam_enabled",
+            "screen_share_enabled",
             "hf_efficientnet_nsfw",
         ):
-            if key in data:
+            if key not in data:
+                continue
+            if key in bool_keys:
+                setattr(cfg, key, _as_bool(data[key]))
+            else:
                 setattr(cfg, key, data[key])
         STATE.sync_policy_from_config()
         return Response({"ok": True, "config": STATE.to_public_dict()["config"]})
