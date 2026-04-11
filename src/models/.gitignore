@@ -1,0 +1,3 @@
+# Keep directory in Git; ignore everything else added locally
+*
+!.gitignore

@@ -1,0 +1,3 @@
+# ONNX weights and model configs — keep folder tracked, ignore large/binary files
+*
+!.gitignore
