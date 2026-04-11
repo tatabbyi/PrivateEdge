@@ -1,0 +1,11 @@
+device:
+  input_device: default
+  output_device: null
+  input_channels: 1
+  output_channels: 2
+  samplerate: 16000
+censoring:
+  word_list: my_swears.txt
+  delay: 4
+model:
+  name: tiny

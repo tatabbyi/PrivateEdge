@@ -1,0 +1,4 @@
+# One word or phrase per line (case-insensitive). Lines starting with # are ignored.
+fuck
+shit
+ass
