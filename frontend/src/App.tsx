@@ -42,6 +42,7 @@ type LiveScores = {
   p_face_other: number;
   p_obscene_gesture: number;
   p_pii_audio: number;
+  p_toxicity: number;
   anger: number;
 };
 
@@ -55,6 +56,7 @@ type WsPayload = {
   screen_capture_live?: boolean;
   telemetry?: Telemetry;
   scores?: LiveScores;
+  audio_debug?: { rms?: number; last_text?: string };
   events?: { message: string; kind: string }[];
   audio?: { id: string; label: string; tone: string }[];
 };
@@ -153,6 +155,8 @@ export function App() {
   const [audioLines, setAudioLines] = useState<
     { id: string; label: string; tone: string }[]
   >([{ id: "ok", label: "Audio OK", tone: "ok" }]);
+  const [audioRms, setAudioRms] = useState<number>(0);
+  const [audioTranscript, setAudioTranscript] = useState<string>("");
   const [videoInputs, setVideoInputs] = useState<DeviceOption[]>([]);
   const [audioInputs, setAudioInputs] = useState<DeviceOption[]>([]);
   const [audioOutputs, setAudioOutputs] = useState<DeviceOption[]>([]);
@@ -270,6 +274,12 @@ export function App() {
           setScreenCaptureLive(data.screen_capture_live);
         if (data.events) setEvents(data.events);
         if (data.audio) setAudioLines(data.audio);
+        if (data.audio_debug) {
+          if (typeof data.audio_debug.rms === "number")
+            setAudioRms(data.audio_debug.rms);
+          if (typeof data.audio_debug.last_text === "string")
+            setAudioTranscript(data.audio_debug.last_text);
+        }
       } catch {
         /* ignore */
       }
@@ -373,6 +383,16 @@ export function App() {
               <strong>{liveScores.p_obscene_gesture.toFixed(2)}</strong>
             </div>
           )}
+          {liveScores && (
+            <div className="metric metric-scores" title="Audio toxicity score from transcript">
+              <label>Toxicity</label>
+              <strong>{liveScores.p_toxicity.toFixed(2)}</strong>
+            </div>
+          )}
+          <div className="metric metric-scores" title="Live microphone RMS (activity)">
+            <label>Mic Level</label>
+            <strong>{audioRms.toFixed(3)}</strong>
+          </div>
           <div className="battery" title="Local power (telemetry)">
             🔋
           </div>
@@ -653,6 +673,9 @@ export function App() {
             ))}
           </div>
           <h3 style={{ marginTop: "0.75rem" }}>Recent events</h3>
+          <p className="audio-transcript">
+            Last transcript: {audioTranscript || "(no speech recognized yet)"}
+          </p>
           <ul className="events">
             {events.length === 0 && (
               <li>No policy events yet — detections appear here.</li>

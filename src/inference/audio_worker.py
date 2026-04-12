@@ -100,10 +100,18 @@ class AudioWorker:
         if not wanted_name:
             return None
         wanted = wanted_name.strip().lower()
+        # Allow directly passing an index in config/UI.
+        if wanted.isdigit():
+            try:
+                return int(wanted)
+            except ValueError:
+                pass
         for idx, d in enumerate(sd.query_devices()):
             if int(d.get("max_output_channels", 0) or 0) <= 0:
                 continue
-            if str(d.get("name", "")).strip().lower() == wanted:
+            dev_name = str(d.get("name", "")).strip().lower()
+            # Exact match first, then forgiving contains matching.
+            if dev_name == wanted or wanted in dev_name or dev_name in wanted:
                 return idx
         return None
 

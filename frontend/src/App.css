@@ -324,6 +324,14 @@
   gap: 0.35rem;
 }
 
+.audio-transcript {
+  margin: 0.2rem 0 0.55rem;
+  font-size: 0.78rem;
+  color: var(--pe-muted);
+  line-height: 1.35;
+  word-break: break-word;
+}
+
 .audio-line {
   font-size: 0.88rem;
 }

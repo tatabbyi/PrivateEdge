@@ -261,7 +261,7 @@ def _loop() -> None:
             else analyze_frame_bgr(frame_s)
         )
         v_scores = merge_vision_streams(zw, zs)
-        a_scores, _, _ = GLOBAL_AUDIO_BUF.snapshot()
+        a_scores, a_text, a_rms = GLOBAL_AUDIO_BUF.snapshot()
         scores = merge_vision_audio_scores(v_scores, a_scores)
 
         decision = STATE.engine.decide(scores)
@@ -361,7 +361,12 @@ def _loop() -> None:
                 "p_nsfw": scores.p_nsfw,
                 "p_obscene_gesture": scores.p_obscene_gesture,
                 "p_pii_audio": scores.p_pii_audio,
+                "p_toxicity": scores.p_toxicity,
                 "anger": scores.anger,
+            },
+            "audio_debug": {
+                "rms": float(a_rms),
+                "last_text": (a_text or "")[:180],
             },
             "decision": {
                 "blur_full": decision.blur_full_frame,
