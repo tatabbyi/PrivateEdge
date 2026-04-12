@@ -18,6 +18,7 @@ _nsfw_sess: Any = None
 _nsfw_tried: bool = False
 _mp_hands: Any = None
 _mp_hands_tried: bool = False
+_mp_hands_error: str | None = None
 
 
 def reset_hf_load_state() -> None:
@@ -113,7 +114,7 @@ def _softmax(values: np.ndarray) -> np.ndarray:
 
 
 def _load_hands_detector() -> Any:
-    global _mp_hands, _mp_hands_tried
+    global _mp_hands, _mp_hands_tried, _mp_hands_error
     if _mp_hands_tried:
         return _mp_hands
     _mp_hands_tried = True
@@ -126,7 +127,9 @@ def _load_hands_detector() -> Any:
             min_tracking_confidence=0.5,
             max_num_hands=2,
         )
+        _mp_hands_error = None
     except Exception as e:  # noqa: BLE001
+        _mp_hands_error = str(e)
         logger.info("mediapipe hands unavailable: %s", e)
         _mp_hands = None
     return _mp_hands
@@ -170,6 +173,14 @@ def _obscene_gesture_score(frame: np.ndarray) -> float:
         if _is_middle_finger_extended(hlm):
             return 1.0
     return 0.0
+
+
+def hand_gesture_runtime_info() -> dict[str, Any]:
+    hands = _load_hands_detector()
+    return {
+        "gesture_detector_loaded": hands is not None,
+        "gesture_detector_error": _mp_hands_error,
+    }
 
 
 def _run_nsfw_onnx(sess: Any, frame: np.ndarray) -> float:
@@ -287,4 +298,5 @@ def nsfw_runtime_info() -> dict[str, Any]:
         "hf_loaded": False,
         "hf_load_failed": True,
         "fallbacks_enabled": False,
+        **hand_gesture_runtime_info(),
     }

@@ -57,6 +57,7 @@ type WsPayload = {
   telemetry?: Telemetry;
   scores?: LiveScores;
   audio_debug?: { rms?: number; last_text?: string };
+  runtime?: { gesture_detector_loaded?: boolean; gesture_detector_error?: string | null };
   events?: { message: string; kind: string }[];
   audio?: { id: string; label: string; tone: string }[];
 };
@@ -157,6 +158,8 @@ export function App() {
   >([{ id: "ok", label: "Audio OK", tone: "ok" }]);
   const [audioRms, setAudioRms] = useState<number>(0);
   const [audioTranscript, setAudioTranscript] = useState<string>("");
+  const [gestureDetectorLoaded, setGestureDetectorLoaded] = useState<boolean>(true);
+  const [gestureDetectorError, setGestureDetectorError] = useState<string>("");
   const [videoInputs, setVideoInputs] = useState<DeviceOption[]>([]);
   const [audioInputs, setAudioInputs] = useState<DeviceOption[]>([]);
   const [audioOutputs, setAudioOutputs] = useState<DeviceOption[]>([]);
@@ -279,6 +282,12 @@ export function App() {
             setAudioRms(data.audio_debug.rms);
           if (typeof data.audio_debug.last_text === "string")
             setAudioTranscript(data.audio_debug.last_text);
+        }
+        if (data.runtime) {
+          if (typeof data.runtime.gesture_detector_loaded === "boolean")
+            setGestureDetectorLoaded(data.runtime.gesture_detector_loaded);
+          if (typeof data.runtime.gesture_detector_error === "string")
+            setGestureDetectorError(data.runtime.gesture_detector_error);
         }
       } catch {
         /* ignore */
@@ -576,6 +585,11 @@ export function App() {
                 <option key={d.id} value={d.label.replace(/\s+\(\d+ch\)$/, "")} />
               ))}
             </datalist>
+            {config.virtual_audio_enabled && audioOutputs.length === 0 && (
+              <p className="field-warning">
+                No audio output devices detected. Install/configure a playback or virtual output device.
+              </p>
+            )}
           </div>
           <h2>Protection settings</h2>
           <div className="toggle-row">
@@ -641,6 +655,11 @@ export function App() {
               onClick={() => toggle("middle_finger_censoring")}
             />
           </div>
+          {config.middle_finger_censoring && !gestureDetectorLoaded && (
+            <p className="field-warning">
+              Gesture detector unavailable ({gestureDetectorError || "mediapipe missing"}). Install `mediapipe` in backend venv.
+            </p>
+          )}
           <div className="select-wrap">
             <label htmlFor="mode">Mode</label>
             <select

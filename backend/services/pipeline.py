@@ -24,7 +24,7 @@ from inference.audio_worker import (
     ensure_audio_worker_with_device,
 )
 from inference.scoring import merge_vision_audio_scores, merge_vision_streams
-from inference.vision import analyze_frame_bgr
+from inference.vision import analyze_frame_bgr, hand_gesture_runtime_info
 from policy.types import MaskingDecision, ModelScores
 from render.blur import apply_policy_blur
 from services.state import STATE
@@ -41,6 +41,7 @@ _prev_emit: dict[str, bool] = {
     "blur": False,
     "silent": False,
     "gesture": False,
+    "gesture_unavailable": False,
 }
 _vcam_webcam: Any = None
 _vcam_screen: Any = None
@@ -206,12 +207,22 @@ def _maybe_log_events(scores: ModelScores, decision: MaskingDecision) -> None:
     gesture_now = scores.p_obscene_gesture >= 0.6
     if gesture_now and not _prev_emit["gesture"]:
         STATE.log_event("Obscene hand gesture detected", "warn")
+    gesture_info = hand_gesture_runtime_info()
+    gesture_ready = bool(gesture_info.get("gesture_detector_loaded"))
+    if (
+        STATE.config.middle_finger_censoring
+        and not gesture_ready
+        and not _prev_emit["gesture_unavailable"]
+    ):
+        err = gesture_info.get("gesture_detector_error") or "mediapipe not installed"
+        STATE.log_event(f"Gesture censoring unavailable: {err}", "warn")
     if decision.silent_mode and not _prev_emit["silent"]:
         STATE.log_event("High stress / anger - Silent mode", "warn")
     _prev_emit["mute"] = decision.mute_audio
     _prev_emit["blur"] = decision.blur_full_frame
     _prev_emit["silent"] = decision.silent_mode
     _prev_emit["gesture"] = gesture_now
+    _prev_emit["gesture_unavailable"] = STATE.config.middle_finger_censoring and not gesture_ready
 
 
 def _loop() -> None:
@@ -368,6 +379,7 @@ def _loop() -> None:
                 "rms": float(a_rms),
                 "last_text": (a_text or "")[:180],
             },
+            "runtime": hand_gesture_runtime_info(),
             "decision": {
                 "blur_full": decision.blur_full_frame,
                 "mute": decision.mute_audio,

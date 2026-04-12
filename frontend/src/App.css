@@ -332,6 +332,13 @@
   word-break: break-word;
 }
 
+.field-warning {
+  margin: 0.45rem 0 0;
+  font-size: 0.74rem;
+  line-height: 1.35;
+  color: #f6c3a7;
+}
+
 .audio-line {
   font-size: 0.88rem;
 }
