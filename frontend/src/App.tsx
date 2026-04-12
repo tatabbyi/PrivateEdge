@@ -8,6 +8,8 @@ type Config = {
   /** PyTorch + Hugging Face EfficientNet when no local ONNX NSFW model */
   hf_efficientnet_nsfw: boolean;
   audio_pii_filtering: boolean;
+  profanity_bleep_enabled: boolean;
+  middle_finger_censoring: boolean;
   mode: string;
   detection_sensitivity: number;
   detection_sensitivity_secondary: number;
@@ -42,6 +44,7 @@ type LiveScores = {
   p_nsfw: number;
   p_doc: number;
   p_face_other: number;
+  p_obscene_gesture: number;
   p_pii_audio: number;
   anger: number;
 };
@@ -115,6 +118,14 @@ function normalizeConfig(c: Config): Config {
       typeof c.virtual_audio_output_device === "string"
         ? c.virtual_audio_output_device
         : "privateedge-audio",
+    profanity_bleep_enabled:
+      typeof c.profanity_bleep_enabled === "boolean"
+        ? c.profanity_bleep_enabled
+        : true,
+    middle_finger_censoring:
+      typeof c.middle_finger_censoring === "boolean"
+        ? c.middle_finger_censoring
+        : true,
   };
 }
 
@@ -360,6 +371,12 @@ export function App() {
               <strong>{liveScores.p_nsfw.toFixed(2)}</strong>
             </div>
           )}
+          {liveScores && (
+            <div className="metric metric-scores" title="Middle-finger gesture score">
+              <label>Gesture</label>
+              <strong>{liveScores.p_obscene_gesture.toFixed(2)}</strong>
+            </div>
+          )}
           <div className="battery" title="Local power (telemetry)">
             🔋
           </div>
@@ -599,6 +616,24 @@ export function App() {
               className={`switch ${config.audio_pii_filtering ? "on" : ""}`}
               aria-pressed={config.audio_pii_filtering}
               onClick={() => toggle("audio_pii_filtering")}
+            />
+          </div>
+          <div className="toggle-row">
+            <span>Profanity bleep (audio)</span>
+            <button
+              type="button"
+              className={`switch ${config.profanity_bleep_enabled ? "on" : ""}`}
+              aria-pressed={config.profanity_bleep_enabled}
+              onClick={() => toggle("profanity_bleep_enabled")}
+            />
+          </div>
+          <div className="toggle-row">
+            <span>Middle-finger censoring</span>
+            <button
+              type="button"
+              className={`switch ${config.middle_finger_censoring ? "on" : ""}`}
+              aria-pressed={config.middle_finger_censoring}
+              onClick={() => toggle("middle_finger_censoring")}
             />
           </div>
           <div className="select-wrap">

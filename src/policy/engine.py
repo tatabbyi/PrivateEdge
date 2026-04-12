@@ -16,6 +16,7 @@ class PolicyEngine:
         tau_doc = self.ctx.effective_tau(self.ctx.tau_doc)
         tau_face = self.ctx.effective_tau(self.ctx.tau_face)
         tau_nsfw = self.ctx.effective_tau(self.ctx.tau_nsfw)
+        tau_gesture = self.ctx.effective_tau(self.ctx.tau_gesture)
         tau_pii = self.ctx.effective_tau(self.ctx.tau_pii)
         tau_tox = self.ctx.effective_tau(self.ctx.tau_toxicity)
         tau_anger = self.ctx.effective_tau(self.ctx.tau_anger)
@@ -23,7 +24,11 @@ class PolicyEngine:
         blur_doc = m.get("blur_documents", True) and scores.p_doc >= tau_doc
         blur_face = m.get("blur_background_faces", True) and scores.p_face_other >= tau_face
         blur_nsfw = m.get("blur_nsfw", True) and scores.p_nsfw >= tau_nsfw
-        d.blur_full_frame = blur_doc or blur_face or blur_nsfw
+        blur_gesture = (
+            m.get("blur_obscene_gesture", True)
+            and scores.p_obscene_gesture >= tau_gesture
+        )
+        d.blur_full_frame = blur_doc or blur_face or blur_nsfw or blur_gesture
 
         if m.get("mute_pii_audio", True) and scores.p_pii_audio >= tau_pii:
             d.mute_audio = True

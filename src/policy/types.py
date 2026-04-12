@@ -17,6 +17,7 @@ class ModelScores:
     p_doc: float = 0.0
     p_face_other: float = 0.0
     p_nsfw: float = 0.0
+    p_obscene_gesture: float = 0.0
     p_pii_audio: float = 0.0
     p_toxicity: float = 0.0
     anger: float = 0.0
@@ -37,6 +38,7 @@ class PolicyContext:
     tau_doc: float = 0.72
     tau_face: float = 0.65
     tau_nsfw: float = 0.55
+    tau_gesture: float = 0.60
     tau_pii: float = 0.60
     tau_toxicity: float = 0.55
     tau_anger: float = 0.75

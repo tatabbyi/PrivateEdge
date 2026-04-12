@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import logging
+import os
+import re
 import threading
 import time
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -16,6 +19,13 @@ logger = logging.getLogger(__name__)
 
 SAMPLE_RATE = 16000
 CHUNK = 4800
+DEFAULT_PROFANITY_WORDLIST = (
+    Path(__file__).resolve().parents[2]
+    / "scripts"
+    / "Audio-Censoring-Tool"
+    / "data"
+    / "default_wordlist.txt"
+)
 
 
 class AudioScoreBuffer:
@@ -53,7 +63,13 @@ class AudioWorker:
         self._output_device_name: str | None = None
         self._mute_output: bool = False
         self._output_stream: Any = None
+        self._bleep_enabled: bool = False
+        self._bleep_hz: float = 1000.0
+        self._bleep_until: float = 0.0
+        self._bleep_phase: float = 0.0
+        self._profanity_words: set[str] = set()
         self._try_load_whisper()
+        self._load_profanity_words(DEFAULT_PROFANITY_WORDLIST)
 
     def set_input_device(self, device_index: int | None) -> None:
         with self._device_lock:
@@ -71,6 +87,11 @@ class AudioWorker:
                     pass
                 self._output_stream = None
 
+    def configure_bleep(self, enabled: bool, frequency_hz: float = 1000.0) -> None:
+        with self._device_lock:
+            self._bleep_enabled = enabled
+            self._bleep_hz = max(120.0, min(3000.0, float(frequency_hz)))
+
     def set_output_muted(self, muted: bool) -> None:
         with self._device_lock:
             self._mute_output = muted
@@ -86,15 +107,54 @@ class AudioWorker:
                 return idx
         return None
 
+    def _load_profanity_words(self, path: Path) -> None:
+        words: set[str] = set()
+        try:
+            text = path.read_text(encoding="utf-8")
+            for line in text.splitlines():
+                s = line.strip().lower()
+                if not s or s.startswith("#"):
+                    continue
+                words.add(s)
+        except Exception as e:  # noqa: BLE001
+            logger.info("Could not load profanity word list '%s': %s", path, e)
+        self._profanity_words = words
+
+    def _contains_profanity(self, text: str) -> bool:
+        if not text or not self._profanity_words:
+            return False
+        toks = [t for t in re.split(r"[^a-zA-Z0-9']+", text.lower()) if t]
+        return any(t in self._profanity_words for t in toks)
+
+    def _bleep_block(self, n: int) -> np.ndarray:
+        with self._device_lock:
+            hz = self._bleep_hz
+        t = (np.arange(n, dtype=np.float32) + self._bleep_phase) / float(SAMPLE_RATE)
+        out = np.sin(2.0 * np.pi * hz * t).astype(np.float32) * 0.25
+        self._bleep_phase += float(n)
+        # Soft fade to reduce click edges.
+        fade = min(48, n // 4 or 1)
+        if n > 2 * fade and fade > 0:
+            ramp = np.linspace(0.0, 1.0, fade, dtype=np.float32)
+            out[:fade] *= ramp
+            out[-fade:] *= ramp[::-1]
+        return out
+
     def _write_output(self, sd: Any, block: np.ndarray) -> None:
         with self._device_lock:
             enabled = self._output_enabled
             wanted = self._output_device_name
             muted = self._mute_output
+            bleep_enabled = self._bleep_enabled
         if not enabled:
             return
-
-        out_block = np.zeros_like(block) if muted else block
+        now = time.monotonic()
+        if muted:
+            out_block = np.zeros_like(block)
+        elif bleep_enabled and now < self._bleep_until:
+            out_block = self._bleep_block(len(block))
+        else:
+            out_block = block
         if self._output_stream is None:
             dev_idx = self._resolve_output_device_index(sd, wanted)
             try:
@@ -194,6 +254,10 @@ class AudioWorker:
                     except Exception as e:  # noqa: BLE001
                         logger.debug("Whisper transcribe: %s", e)
 
+                if self._contains_profanity(text):
+                    # Keep bleep window short so normal speech returns quickly.
+                    self._bleep_until = time.monotonic() + 0.8
+
                 ts = score_transcript(text)
                 stress = min(1.0, rms * 8.0)
                 caps = (
@@ -206,6 +270,7 @@ class AudioWorker:
                     p_doc=0.0,
                     p_face_other=0.0,
                     p_nsfw=0.0,
+                    p_obscene_gesture=0.0,
                     p_pii_audio=ts.p_pii,
                     p_toxicity=ts.p_toxicity,
                     anger=max(anger, ts.p_toxicity * 0.5),
@@ -281,3 +346,9 @@ def configure_audio_output(enabled: bool, output_device_name: str | None, muted:
         return
     _GLOBAL_AUDIO_WORKER.configure_output(enabled, output_device_name)
     _GLOBAL_AUDIO_WORKER.set_output_muted(muted)
+
+
+def configure_audio_bleep(enabled: bool, frequency_hz: float = 1000.0) -> None:
+    if _GLOBAL_AUDIO_WORKER is None:
+        return
+    _GLOBAL_AUDIO_WORKER.configure_bleep(enabled, frequency_hz)

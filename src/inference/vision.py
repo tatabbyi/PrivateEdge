@@ -16,6 +16,8 @@ logger = logging.getLogger(__name__)
 _face_cascade: Any = None
 _nsfw_sess: Any = None
 _nsfw_tried: bool = False
+_mp_hands: Any = None
+_mp_hands_tried: bool = False
 
 
 def reset_hf_load_state() -> None:
@@ -110,6 +112,66 @@ def _softmax(values: np.ndarray) -> np.ndarray:
     return e / np.sum(e)
 
 
+def _load_hands_detector() -> Any:
+    global _mp_hands, _mp_hands_tried
+    if _mp_hands_tried:
+        return _mp_hands
+    _mp_hands_tried = True
+    try:
+        import mediapipe as mp
+
+        _mp_hands = mp.solutions.hands.Hands(
+            model_complexity=0,
+            min_detection_confidence=0.5,
+            min_tracking_confidence=0.5,
+            max_num_hands=2,
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.info("mediapipe hands unavailable: %s", e)
+        _mp_hands = None
+    return _mp_hands
+
+
+def _is_middle_finger_extended(hand_landmarks: Any) -> bool:
+    middle_tip_y = hand_landmarks.landmark[12].y
+    middle_pip_y = hand_landmarks.landmark[10].y
+    index_tip_y = hand_landmarks.landmark[8].y
+    index_pip_y = hand_landmarks.landmark[6].y
+    ring_tip_y = hand_landmarks.landmark[16].y
+    ring_pip_y = hand_landmarks.landmark[14].y
+    pinky_tip_y = hand_landmarks.landmark[20].y
+    pinky_pip_y = hand_landmarks.landmark[18].y
+
+    middle_extended = middle_tip_y < middle_pip_y
+    others_folded = (
+        index_tip_y > index_pip_y
+        and ring_tip_y > ring_pip_y
+        and pinky_tip_y > pinky_pip_y
+    )
+    return bool(middle_extended and others_folded)
+
+
+def _obscene_gesture_score(frame: np.ndarray) -> float:
+    import cv2
+
+    hands = _load_hands_detector()
+    if hands is None:
+        return 0.0
+    try:
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        results = hands.process(rgb)
+    except Exception as e:  # noqa: BLE001
+        logger.debug("Hands inference failed: %s", e)
+        return 0.0
+
+    if not results or not results.multi_hand_landmarks:
+        return 0.0
+    for hlm in results.multi_hand_landmarks:
+        if _is_middle_finger_extended(hlm):
+            return 1.0
+    return 0.0
+
+
 def _run_nsfw_onnx(sess: Any, frame: np.ndarray) -> float:
     import cv2
 
@@ -177,6 +239,7 @@ def analyze_frame_bgr(
     """Compute vision-only scores from a BGR frame (ONNX-only NSFW path)."""
     p_doc = _document_likelihood(frame)
     p_face_other = _face_other_score(frame)
+    p_obscene_gesture = _obscene_gesture_score(frame)
 
     sess = _load_nsfw_session()
     if sess is not None:
@@ -189,6 +252,7 @@ def analyze_frame_bgr(
         p_doc=p_doc,
         p_face_other=p_face_other,
         p_nsfw=p_nsfw,
+        p_obscene_gesture=p_obscene_gesture,
         p_pii_audio=0.0,
         p_toxicity=0.0,
         anger=0.0,

@@ -20,6 +20,8 @@ class RuntimeConfig:
     text_document_blocking: bool = True
     nsfw_detection: bool = True
     audio_pii_filtering: bool = True
+    profanity_bleep_enabled: bool = True
+    middle_finger_censoring: bool = True
     mode: str = "emotion_adaptive"
     detection_sensitivity: float = 0.55
     detection_sensitivity_secondary: float = 0.45
@@ -101,8 +103,9 @@ class AppState:
                 "blur_background_faces": c.face_masking,
                 "blur_documents": c.text_document_blocking,
                 "blur_nsfw": c.nsfw_detection,
+                "blur_obscene_gesture": c.middle_finger_censoring,
                 "mute_pii_audio": c.audio_pii_filtering,
-                "mute_profanity": True,
+                "mute_profanity": c.profanity_bleep_enabled,
                 "blur_brands": True,
                 "emotion_adaptation": c.mode == "emotion_adaptive",
             }

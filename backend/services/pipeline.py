@@ -19,6 +19,7 @@ from capture.screen import ScreenSource
 from capture.video import VideoSource
 from inference.audio_worker import (
     GLOBAL_AUDIO_BUF,
+    configure_audio_bleep,
     configure_audio_output,
     ensure_audio_worker_with_device,
 )
@@ -35,7 +36,12 @@ _screen: ScreenSource | None = None
 _ema_fps = 30.0
 _last_broadcast = 0.0
 _npu_base: float | None = None
-_prev_emit: dict[str, bool] = {"mute": False, "blur": False, "silent": False}
+_prev_emit: dict[str, bool] = {
+    "mute": False,
+    "blur": False,
+    "silent": False,
+    "gesture": False,
+}
 _vcam_webcam: Any = None
 _vcam_screen: Any = None
 _vcam_webcam_name: str = ""
@@ -197,11 +203,15 @@ def _maybe_log_events(scores: ModelScores, decision: MaskingDecision) -> None:
             STATE.log_event("Sensitive phrase - Audio Muted", "warn")
     if decision.blur_full_frame and not _prev_emit["blur"]:
         STATE.log_event("Policy - Visual protection applied", "info")
+    gesture_now = scores.p_obscene_gesture >= 0.6
+    if gesture_now and not _prev_emit["gesture"]:
+        STATE.log_event("Obscene hand gesture detected", "warn")
     if decision.silent_mode and not _prev_emit["silent"]:
         STATE.log_event("High stress / anger - Silent mode", "warn")
     _prev_emit["mute"] = decision.mute_audio
     _prev_emit["blur"] = decision.blur_full_frame
     _prev_emit["silent"] = decision.silent_mode
+    _prev_emit["gesture"] = gesture_now
 
 
 def _loop() -> None:
@@ -262,6 +272,7 @@ def _loop() -> None:
             output_device_name=cfg.virtual_audio_output_device,
             muted=decision.mute_audio,
         )
+        configure_audio_bleep(enabled=cfg.profanity_bleep_enabled, frequency_hz=1000.0)
 
         blur = cfg.blur_strength
         prot_w = _apply_protection(decision, frame_w, blur)
@@ -348,6 +359,7 @@ def _loop() -> None:
                 "p_doc": scores.p_doc,
                 "p_face_other": scores.p_face_other,
                 "p_nsfw": scores.p_nsfw,
+                "p_obscene_gesture": scores.p_obscene_gesture,
                 "p_pii_audio": scores.p_pii_audio,
                 "anger": scores.anger,
             },

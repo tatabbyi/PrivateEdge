@@ -11,6 +11,7 @@ mss>=9.0
 sounddevice>=0.5
 faster-whisper>=1.0.0
 pyvirtualcam>=0.11.0
+mediapipe>=0.10.0
 pytest>=8.0
 
 # Optional NSFW via Hugging Face (set PRIVATEEDGE_USE_HF_EFFICIENTNET=1)
