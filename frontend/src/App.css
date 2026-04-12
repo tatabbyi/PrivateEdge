@@ -107,6 +107,8 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 1rem;
+  align-content: start;
+  justify-items: center;
 }
 
 @media (max-width: 720px) {
@@ -122,7 +124,9 @@
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  min-height: 220px;
+  width: 100%;
+  max-width: 760px;
+  min-height: 0;
 }
 
 .feed-card > header {
@@ -152,8 +156,8 @@
 }
 
 .feed-card .img {
-  flex: 1;
-  min-height: 200px;
+  width: 100%;
+  aspect-ratio: 16 / 9;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -164,7 +168,6 @@
   width: 100%;
   height: 100%;
   object-fit: contain;
-  max-height: 320px;
 }
 
 .placeholder.muted {

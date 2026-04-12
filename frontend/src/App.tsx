@@ -5,16 +5,12 @@ type Config = {
   face_masking: boolean;
   text_document_blocking: boolean;
   nsfw_detection: boolean;
-  /** PyTorch + Hugging Face EfficientNet when no local ONNX NSFW model */
-  hf_efficientnet_nsfw: boolean;
   audio_pii_filtering: boolean;
   profanity_bleep_enabled: boolean;
   middle_finger_censoring: boolean;
   mode: string;
   detection_sensitivity: number;
-  detection_sensitivity_secondary: number;
   blur_strength: number;
-  blur_strength_secondary: number;
   mute_sensitivity: number;
   protection_enabled: boolean;
   /** When false, webcam capture and inference for that source are off */
@@ -365,7 +361,7 @@ export function App() {
           {liveScores && (
             <div
               className="metric metric-scores"
-              title="Live model signals (NSFW uses HF EfficientNet when that toggle is on and no ONNX NSFW model is loaded)"
+              title="Live NSFW signal score"
             >
               <label>NSFW</label>
               <strong>{liveScores.p_nsfw.toFixed(2)}</strong>
@@ -598,17 +594,6 @@ export function App() {
               onClick={() => toggle("nsfw_detection")}
             />
           </div>
-          <div className="toggle-row toggle-row--sub">
-            <span title="Uses Hugging Face EfficientNet (PyTorch) when no models/nsfw.onnx is present">
-              HF EfficientNet NSFW
-            </span>
-            <button
-              type="button"
-              className={`switch ${config.hf_efficientnet_nsfw ? "on" : ""}`}
-              aria-pressed={config.hf_efficientnet_nsfw}
-              onClick={() => toggle("hf_efficientnet_nsfw")}
-            />
-          </div>
           <div className="toggle-row">
             <span>Audio PII filtering</span>
             <button
@@ -681,7 +666,7 @@ export function App() {
         <div className="panel sliders">
           <div className="slider-row">
             <label>
-              <span>Detection sensitivity (A)</span>
+              <span>Detection sensitivity</span>
               <span>{config.detection_sensitivity.toFixed(2)}</span>
             </label>
             <input
@@ -699,27 +684,7 @@ export function App() {
           </div>
           <div className="slider-row">
             <label>
-              <span>Detection sensitivity (B)</span>
-              <span>{config.detection_sensitivity_secondary.toFixed(2)}</span>
-            </label>
-            <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.01}
-              value={config.detection_sensitivity_secondary}
-              onChange={(e) =>
-                patchConfig({
-                  detection_sensitivity_secondary: parseFloat(
-                    e.target.value
-                  ),
-                })
-              }
-            />
-          </div>
-          <div className="slider-row">
-            <label>
-              <span>Blur strength (A)</span>
+              <span>Blur strength</span>
               <span>{config.blur_strength.toFixed(2)}</span>
             </label>
             <input
@@ -730,24 +695,6 @@ export function App() {
               value={config.blur_strength}
               onChange={(e) =>
                 patchConfig({ blur_strength: parseFloat(e.target.value) })
-              }
-            />
-          </div>
-          <div className="slider-row">
-            <label>
-              <span>Blur strength (B)</span>
-              <span>{config.blur_strength_secondary.toFixed(2)}</span>
-            </label>
-            <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.01}
-              value={config.blur_strength_secondary}
-              onChange={(e) =>
-                patchConfig({
-                  blur_strength_secondary: parseFloat(e.target.value),
-                })
               }
             />
           </div>
