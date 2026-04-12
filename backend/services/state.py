@@ -30,6 +30,17 @@ class RuntimeConfig:
     # Webcam + screen share capture (pipeline merges vision scores from both)
     webcam_enabled: bool = True
     screen_share_enabled: bool = True
+    # None = auto-select, otherwise explicit OpenCV index
+    webcam_index: int | None = None
+    # None = default input device, otherwise sounddevice input index
+    mic_device_index: int | None = None
+    # Virtual outputs for OBS or other apps.
+    virtual_webcam_enabled: bool = True
+    virtual_screenshare_enabled: bool = False
+    virtual_audio_enabled: bool = False
+    virtual_webcam_device_name: str = "OBS Virtual Camera"
+    virtual_screenshare_device_name: str = "privateedge-screenshare"
+    virtual_audio_output_device: str = "privateedge-audio"
     # Hugging Face EfficientNet NSFW (torch+transformers); ONNX still wins if present
     hf_efficientnet_nsfw: bool = False
 

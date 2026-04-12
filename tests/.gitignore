@@ -1,3 +1,7 @@
-# Keep directory in Git; ignore everything else added locally
+﻿# Keep directory in Git; ignore everything else added locally
 *
 !.gitignore
+!conftest.py
+!test_policy_engine.py
+!test_scoring.py
+!test_text_signals.py

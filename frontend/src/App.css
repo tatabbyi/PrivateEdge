@@ -274,6 +274,17 @@
   font-size: 0.88rem;
 }
 
+.select-wrap input {
+  width: 100%;
+  padding: 0.45rem 0.75rem;
+  border-radius: 4px;
+  border: 1px solid var(--pe-border);
+  background: var(--pe-elevated);
+  color: var(--pe-text);
+  font-family: inherit;
+  font-size: 0.88rem;
+}
+
 .bottom {
   display: grid;
   grid-template-columns: 1fr 1.2fr auto;

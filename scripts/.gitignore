@@ -1,3 +1,4 @@
-# Keep directory in Git; ignore everything else added locally
+﻿# Keep directory in Git; ignore everything else added locally
 *
 !.gitignore
+!preflight_env.py

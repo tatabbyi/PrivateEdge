@@ -19,6 +19,16 @@ type Config = {
   webcam_enabled: boolean;
   /** When false, screen capture and inference for that source are off */
   screen_share_enabled: boolean;
+  /** Null = auto/default, integer = explicit OpenCV camera index */
+  webcam_index: number | null;
+  /** Null = OS default, integer = explicit microphone input index */
+  mic_device_index: number | null;
+  virtual_webcam_enabled: boolean;
+  virtual_screenshare_enabled: boolean;
+  virtual_audio_enabled: boolean;
+  virtual_webcam_device_name: string;
+  virtual_screenshare_device_name: string;
+  virtual_audio_output_device: string;
 };
 
 type Telemetry = {
@@ -50,6 +60,17 @@ type WsPayload = {
   audio?: { id: string; label: string; tone: string }[];
 };
 
+type DeviceOption = {
+  id: number;
+  label: string;
+};
+
+type DevicesResponse = {
+  video_inputs?: DeviceOption[];
+  audio_inputs?: DeviceOption[];
+  audio_outputs?: DeviceOption[];
+};
+
 /** Empty = same origin (Vite proxy in dev, or UI served with API). Override with VITE_API_BASE. */
 const API_BASE =
   (import.meta.env.VITE_API_BASE as string | undefined)?.trim() ?? "";
@@ -66,6 +87,34 @@ function normalizeConfig(c: Config): Config {
       typeof c.screen_share_enabled === "boolean"
         ? c.screen_share_enabled
         : true,
+    webcam_index:
+      typeof c.webcam_index === "number" ? Math.trunc(c.webcam_index) : null,
+    mic_device_index:
+      typeof c.mic_device_index === "number"
+        ? Math.trunc(c.mic_device_index)
+        : null,
+    virtual_webcam_enabled:
+      typeof c.virtual_webcam_enabled === "boolean"
+        ? c.virtual_webcam_enabled
+        : true,
+    virtual_screenshare_enabled:
+      typeof c.virtual_screenshare_enabled === "boolean"
+        ? c.virtual_screenshare_enabled
+        : false,
+    virtual_audio_enabled:
+      typeof c.virtual_audio_enabled === "boolean" ? c.virtual_audio_enabled : false,
+    virtual_webcam_device_name:
+      typeof c.virtual_webcam_device_name === "string"
+        ? c.virtual_webcam_device_name
+        : "OBS Virtual Camera",
+    virtual_screenshare_device_name:
+      typeof c.virtual_screenshare_device_name === "string"
+        ? c.virtual_screenshare_device_name
+        : "privateedge-screenshare",
+    virtual_audio_output_device:
+      typeof c.virtual_audio_output_device === "string"
+        ? c.virtual_audio_output_device
+        : "privateedge-audio",
   };
 }
 
@@ -97,6 +146,9 @@ export function App() {
   const [audioLines, setAudioLines] = useState<
     { id: string; label: string; tone: string }[]
   >([{ id: "ok", label: "Audio OK", tone: "ok" }]);
+  const [videoInputs, setVideoInputs] = useState<DeviceOption[]>([]);
+  const [audioInputs, setAudioInputs] = useState<DeviceOption[]>([]);
+  const [audioOutputs, setAudioOutputs] = useState<DeviceOption[]>([]);
   const [wsState, setWsState] = useState<"connecting" | "open" | "closed">(
     "connecting"
   );
@@ -168,9 +220,28 @@ export function App() {
     }
   }, []);
 
+  const loadDevices = useCallback(async () => {
+    try {
+      const r = await fetch(`${API_BASE}/api/devices/`, {
+        headers: { Accept: "application/json" },
+      });
+      if (!r.ok) return;
+      const j = (await r.json()) as DevicesResponse;
+      setVideoInputs(Array.isArray(j.video_inputs) ? j.video_inputs : []);
+      setAudioInputs(Array.isArray(j.audio_inputs) ? j.audio_inputs : []);
+      setAudioOutputs(Array.isArray(j.audio_outputs) ? j.audio_outputs : []);
+    } catch {
+      // Keep UI usable even if device probing endpoint fails.
+    }
+  }, []);
+
   useEffect(() => {
     void loadConfig();
   }, [loadConfig]);
+
+  useEffect(() => {
+    void loadDevices();
+  }, [loadDevices]);
 
   useEffect(() => {
     const url = wsUrl();
@@ -364,6 +435,114 @@ export function App() {
               aria-pressed={config.screen_share_enabled}
               onClick={() => toggle("screen_share_enabled")}
             />
+          </div>
+          <div className="select-wrap">
+            <label htmlFor="webcam-index">Webcam input</label>
+            <select
+              id="webcam-index"
+              value={config.webcam_index ?? -1}
+              onChange={(e) =>
+                patchConfig({
+                  webcam_index:
+                    Number(e.target.value) < 0
+                      ? null
+                      : Number(e.target.value),
+                })
+              }
+            >
+              <option value={-1}>Auto / default</option>
+              {videoInputs.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="select-wrap">
+            <label htmlFor="mic-device-index">Microphone input</label>
+            <select
+              id="mic-device-index"
+              value={config.mic_device_index ?? -1}
+              onChange={(e) =>
+                patchConfig({
+                  mic_device_index:
+                    Number(e.target.value) < 0
+                      ? null
+                      : Number(e.target.value),
+                })
+              }
+            >
+              <option value={-1}>Default system microphone</option>
+              {audioInputs.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <h2>Virtual outputs</h2>
+          <div className="toggle-row">
+            <span>Virtual webcam</span>
+            <button
+              type="button"
+              className={`switch ${config.virtual_webcam_enabled ? "on" : ""}`}
+              aria-pressed={config.virtual_webcam_enabled}
+              onClick={() => toggle("virtual_webcam_enabled")}
+            />
+          </div>
+          <div className="toggle-row">
+            <span>Virtual screenshare</span>
+            <button
+              type="button"
+              className={`switch ${config.virtual_screenshare_enabled ? "on" : ""}`}
+              aria-pressed={config.virtual_screenshare_enabled}
+              onClick={() => toggle("virtual_screenshare_enabled")}
+            />
+          </div>
+          <div className="toggle-row">
+            <span>Virtual audio</span>
+            <button
+              type="button"
+              className={`switch ${config.virtual_audio_enabled ? "on" : ""}`}
+              aria-pressed={config.virtual_audio_enabled}
+              onClick={() => toggle("virtual_audio_enabled")}
+            />
+          </div>
+          <div className="select-wrap">
+            <label htmlFor="virtual-webcam-name">Virtual webcam device name</label>
+            <input
+              id="virtual-webcam-name"
+              value={config.virtual_webcam_device_name}
+              onChange={(e) =>
+                patchConfig({ virtual_webcam_device_name: e.target.value })
+              }
+            />
+          </div>
+          <div className="select-wrap">
+            <label htmlFor="virtual-screen-name">Virtual screenshare device name</label>
+            <input
+              id="virtual-screen-name"
+              value={config.virtual_screenshare_device_name}
+              onChange={(e) =>
+                patchConfig({ virtual_screenshare_device_name: e.target.value })
+              }
+            />
+          </div>
+          <div className="select-wrap">
+            <label htmlFor="virtual-audio-name">Virtual audio output device</label>
+            <input
+              id="virtual-audio-name"
+              list="audio-output-options"
+              value={config.virtual_audio_output_device}
+              onChange={(e) =>
+                patchConfig({ virtual_audio_output_device: e.target.value })
+              }
+            />
+            <datalist id="audio-output-options">
+              {audioOutputs.map((d) => (
+                <option key={d.id} value={d.label.replace(/\s+\(\d+ch\)$/, "")} />
+              ))}
+            </datalist>
           </div>
           <h2>Protection settings</h2>
           <div className="toggle-row">
