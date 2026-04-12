@@ -100,7 +100,7 @@ pytest -q
 
 ## Submission checklist (competition)
 
-- [ ] Fill team names + emails below.
+- [x] Fill team names + emails below.
 - [x] Include open-source license (`LICENSE`).
 - [x] Provide setup/run instructions.
 - [ ] Confirm app runs on Snapdragon X Elite with QNN EP.
@@ -109,10 +109,10 @@ pytest -q
 
 ### Team
 
-- Name / email:
-- Name / email:
-- Name / email:
-- Name / email:
+- Cristian Bivol / crisbivol.business@gmail.com:
+- David Conroy / davidconroy333@gmail.com:
+- Rachel Keaveney / ytrachel0@gmail.com:
+- Joan Byrne / tomentose38@gmail.com:
 
 ## Current limitations
 
