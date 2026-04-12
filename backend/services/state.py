@@ -22,6 +22,8 @@ class RuntimeConfig:
     audio_pii_filtering: bool = True
     profanity_bleep_enabled: bool = True
     middle_finger_censoring: bool = True
+    local_audio_monitor_enabled: bool = True
+    demo_force_censoring: bool = False
     mode: str = "emotion_adaptive"
     detection_sensitivity: float = 0.55
     detection_sensitivity_secondary: float = 0.45
@@ -42,7 +44,8 @@ class RuntimeConfig:
     virtual_audio_enabled: bool = False
     virtual_webcam_device_name: str = "OBS Virtual Camera"
     virtual_screenshare_device_name: str = "privateedge-screenshare"
-    virtual_audio_output_device: str = "privateedge-audio"
+    # Empty means default OS playback/output device.
+    virtual_audio_output_device: str = ""
     # Hugging Face EfficientNet NSFW (torch+transformers); ONNX still wins if present
     hf_efficientnet_nsfw: bool = False
 
@@ -105,7 +108,8 @@ class AppState:
                 "blur_nsfw": c.nsfw_detection,
                 "blur_obscene_gesture": c.middle_finger_censoring,
                 "mute_pii_audio": c.audio_pii_filtering,
-                "mute_profanity": c.profanity_bleep_enabled,
+                # Profanity uses tone bleep in audio worker; keep hard-mute for PII.
+                "mute_profanity": False,
                 "blur_brands": True,
                 "emotion_adaptation": c.mode == "emotion_adaptive",
             }

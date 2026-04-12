@@ -19,6 +19,7 @@ from capture.screen import ScreenSource
 from capture.video import VideoSource
 from inference.audio_worker import (
     GLOBAL_AUDIO_BUF,
+    audio_runtime_status,
     configure_audio_bleep,
     configure_audio_output,
     ensure_audio_worker_with_device,
@@ -278,12 +279,22 @@ def _loop() -> None:
         decision = STATE.engine.decide(scores)
         if not cfg.protection_enabled:
             decision = MaskingDecision()
+        if cfg.demo_force_censoring:
+            decision.blur_full_frame = True
+            decision.silent_mode = True
+            if not decision.mute_audio:
+                decision.mute_reason = "phrase"
+        hard_mute = decision.mute_audio and decision.mute_reason == "pii"
         configure_audio_output(
-            enabled=cfg.virtual_audio_enabled,
+            enabled=cfg.virtual_audio_enabled or cfg.local_audio_monitor_enabled,
             output_device_name=cfg.virtual_audio_output_device,
-            muted=decision.mute_audio,
+            muted=hard_mute,
         )
-        configure_audio_bleep(enabled=cfg.profanity_bleep_enabled, frequency_hz=1000.0)
+        configure_audio_bleep(
+            enabled=cfg.profanity_bleep_enabled or cfg.demo_force_censoring,
+            frequency_hz=1000.0,
+            force=cfg.demo_force_censoring,
+        )
 
         blur = cfg.blur_strength
         prot_w = _apply_protection(decision, frame_w, blur)
@@ -337,22 +348,28 @@ def _loop() -> None:
             _maybe_log_events(scores, decision)
             last_emit = now
 
+        a_rt = audio_runtime_status()
         audio_items = [{"id": "ok", "label": "Audio OK", "tone": "ok"}]
-        if decision.mute_audio:
-            if decision.mute_reason == "pii":
-                audio_items = [
-                    {"id": "ok", "label": "Audio OK", "tone": "ok"},
-                    {"id": "pii", "label": "Muted: PII Detected", "tone": "bad"},
-                ]
-            else:
-                audio_items = [
-                    {"id": "ok", "label": "Audio OK", "tone": "ok"},
-                    {
-                        "id": "phrase",
-                        "label": "Muted: Sensitive phrase",
-                        "tone": "warn",
-                    },
-                ]
+        if decision.mute_audio and decision.mute_reason == "pii":
+            audio_items = [
+                {"id": "ok", "label": "Audio OK", "tone": "ok"},
+                {"id": "pii", "label": "Muted: PII Detected", "tone": "bad"},
+            ]
+        elif cfg.profanity_bleep_enabled and scores.p_toxicity >= 0.45:
+            audio_items = [
+                {"id": "ok", "label": "Audio OK", "tone": "ok"},
+                {"id": "phrase", "label": "Profanity censored with bleep", "tone": "warn"},
+            ]
+        if (cfg.virtual_audio_enabled or cfg.local_audio_monitor_enabled) and not bool(
+            a_rt.get("output_stream_open")
+        ):
+            audio_items.append(
+                {
+                    "id": "out_missing",
+                    "label": "Audio output stream not open (check output device)",
+                    "tone": "bad",
+                }
+            )
         STATE.set_audio_statuses(audio_items)
 
         payload = {
@@ -380,6 +397,7 @@ def _loop() -> None:
                 "last_text": (a_text or "")[:180],
             },
             "runtime": hand_gesture_runtime_info(),
+            "audio_runtime": a_rt,
             "decision": {
                 "blur_full": decision.blur_full_frame,
                 "mute": decision.mute_audio,

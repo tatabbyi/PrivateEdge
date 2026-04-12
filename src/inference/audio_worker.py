@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 import re
 import threading
 import time
@@ -64,6 +63,7 @@ class AudioWorker:
         self._mute_output: bool = False
         self._output_stream: Any = None
         self._bleep_enabled: bool = False
+        self._force_bleep: bool = False
         self._bleep_hz: float = 1000.0
         self._bleep_until: float = 0.0
         self._bleep_phase: float = 0.0
@@ -87,9 +87,12 @@ class AudioWorker:
                     pass
                 self._output_stream = None
 
-    def configure_bleep(self, enabled: bool, frequency_hz: float = 1000.0) -> None:
+    def configure_bleep(
+        self, enabled: bool, frequency_hz: float = 1000.0, force: bool = False
+    ) -> None:
         with self._device_lock:
             self._bleep_enabled = enabled
+            self._force_bleep = force
             self._bleep_hz = max(120.0, min(3000.0, float(frequency_hz)))
 
     def set_output_muted(self, muted: bool) -> None:
@@ -154,12 +157,13 @@ class AudioWorker:
             wanted = self._output_device_name
             muted = self._mute_output
             bleep_enabled = self._bleep_enabled
+            force_bleep = self._force_bleep
         if not enabled:
             return
         now = time.monotonic()
         if muted:
             out_block = np.zeros_like(block)
-        elif bleep_enabled and now < self._bleep_until:
+        elif bleep_enabled and (force_bleep or now < self._bleep_until):
             out_block = self._bleep_block(len(block))
         else:
             out_block = block
@@ -192,6 +196,18 @@ class AudioWorker:
             except Exception:  # noqa: BLE001
                 pass
             self._output_stream = None
+
+    def runtime_status(self) -> dict[str, object]:
+        with self._device_lock:
+            return {
+                "output_enabled": self._output_enabled,
+                "output_stream_open": self._output_stream is not None,
+                "output_device_name": self._output_device_name or "",
+                "bleep_enabled": self._bleep_enabled,
+                "bleep_active": bool(self._force_bleep or time.monotonic() < self._bleep_until),
+                "force_bleep": self._force_bleep,
+                "input_device_index": self._input_device_index,
+            }
 
     def _try_load_whisper(self) -> None:
         try:
@@ -356,7 +372,23 @@ def configure_audio_output(enabled: bool, output_device_name: str | None, muted:
     _GLOBAL_AUDIO_WORKER.set_output_muted(muted)
 
 
-def configure_audio_bleep(enabled: bool, frequency_hz: float = 1000.0) -> None:
+def configure_audio_bleep(
+    enabled: bool, frequency_hz: float = 1000.0, force: bool = False
+) -> None:
     if _GLOBAL_AUDIO_WORKER is None:
         return
-    _GLOBAL_AUDIO_WORKER.configure_bleep(enabled, frequency_hz)
+    _GLOBAL_AUDIO_WORKER.configure_bleep(enabled, frequency_hz, force=force)
+
+
+def audio_runtime_status() -> dict[str, object]:
+    if _GLOBAL_AUDIO_WORKER is None:
+        return {
+            "output_enabled": False,
+            "output_stream_open": False,
+            "output_device_name": "",
+            "bleep_enabled": False,
+            "bleep_active": False,
+            "force_bleep": False,
+            "input_device_index": None,
+        }
+    return _GLOBAL_AUDIO_WORKER.runtime_status()

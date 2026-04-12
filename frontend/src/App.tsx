@@ -24,6 +24,8 @@ type Config = {
   virtual_webcam_enabled: boolean;
   virtual_screenshare_enabled: boolean;
   virtual_audio_enabled: boolean;
+  local_audio_monitor_enabled: boolean;
+  demo_force_censoring: boolean;
   virtual_webcam_device_name: string;
   virtual_screenshare_device_name: string;
   virtual_audio_output_device: string;
@@ -57,6 +59,14 @@ type WsPayload = {
   telemetry?: Telemetry;
   scores?: LiveScores;
   audio_debug?: { rms?: number; last_text?: string };
+  audio_runtime?: {
+    output_enabled?: boolean;
+    output_stream_open?: boolean;
+    output_device_name?: string;
+    bleep_enabled?: boolean;
+    bleep_active?: boolean;
+    force_bleep?: boolean;
+  };
   runtime?: { gesture_detector_loaded?: boolean; gesture_detector_error?: string | null };
   events?: { message: string; kind: string }[];
   audio?: { id: string; label: string; tone: string }[];
@@ -105,6 +115,12 @@ function normalizeConfig(c: Config): Config {
         : false,
     virtual_audio_enabled:
       typeof c.virtual_audio_enabled === "boolean" ? c.virtual_audio_enabled : false,
+    local_audio_monitor_enabled:
+      typeof c.local_audio_monitor_enabled === "boolean"
+        ? c.local_audio_monitor_enabled
+        : true,
+    demo_force_censoring:
+      typeof c.demo_force_censoring === "boolean" ? c.demo_force_censoring : false,
     virtual_webcam_device_name:
       typeof c.virtual_webcam_device_name === "string"
         ? c.virtual_webcam_device_name
@@ -116,7 +132,7 @@ function normalizeConfig(c: Config): Config {
     virtual_audio_output_device:
       typeof c.virtual_audio_output_device === "string"
         ? c.virtual_audio_output_device
-        : "privateedge-audio",
+        : "",
     profanity_bleep_enabled:
       typeof c.profanity_bleep_enabled === "boolean"
         ? c.profanity_bleep_enabled
@@ -147,6 +163,8 @@ export function App() {
   });
   const [liveScores, setLiveScores] = useState<LiveScores | null>(null);
   /** Protected preview only (one tile per source). */
+  const [webcamRawPreview, setWebcamRawPreview] = useState<string | null>(null);
+  const [screenRawPreview, setScreenRawPreview] = useState<string | null>(null);
   const [webcamPreview, setWebcamPreview] = useState<string | null>(null);
   const [screenPreview, setScreenPreview] = useState<string | null>(null);
   const [screenCaptureLive, setScreenCaptureLive] = useState<boolean | null>(
@@ -160,6 +178,8 @@ export function App() {
   const [audioTranscript, setAudioTranscript] = useState<string>("");
   const [gestureDetectorLoaded, setGestureDetectorLoaded] = useState<boolean>(true);
   const [gestureDetectorError, setGestureDetectorError] = useState<string>("");
+  const [audioOutputOpen, setAudioOutputOpen] = useState<boolean>(false);
+  const [audioBleepActive, setAudioBleepActive] = useState<boolean>(false);
   const [videoInputs, setVideoInputs] = useState<DeviceOption[]>([]);
   const [audioInputs, setAudioInputs] = useState<DeviceOption[]>([]);
   const [audioOutputs, setAudioOutputs] = useState<DeviceOption[]>([]);
@@ -269,6 +289,8 @@ export function App() {
         const data = JSON.parse(ev.data) as WsPayload;
         if (data.telemetry) setTelemetry(data.telemetry);
         if (data.scores) setLiveScores(data.scores);
+        if (data.raw_webcam_jpeg) setWebcamRawPreview(data.raw_webcam_jpeg);
+        if (data.raw_screen_jpeg) setScreenRawPreview(data.raw_screen_jpeg);
         if (data.protected_webcam_jpeg)
           setWebcamPreview(data.protected_webcam_jpeg);
         if (data.protected_screen_jpeg)
@@ -288,6 +310,14 @@ export function App() {
             setGestureDetectorLoaded(data.runtime.gesture_detector_loaded);
           if (typeof data.runtime.gesture_detector_error === "string")
             setGestureDetectorError(data.runtime.gesture_detector_error);
+        }
+        if (data.audio_runtime) {
+          if (typeof data.audio_runtime.output_stream_open === "boolean") {
+            setAudioOutputOpen(data.audio_runtime.output_stream_open);
+          }
+          if (typeof data.audio_runtime.bleep_active === "boolean") {
+            setAudioBleepActive(data.audio_runtime.bleep_active);
+          }
         }
       } catch {
         /* ignore */
@@ -412,19 +442,41 @@ export function App() {
         <section className="feeds">
           <article className="feed-card">
             <header>Webcam</header>
-            <div className="img">
-              {config.webcam_enabled ? (
-                webcamPreview ? (
-                  <img
-                    alt="Webcam — protected preview"
-                    src={`data:image/jpeg;base64,${webcamPreview}`}
-                  />
-                ) : (
-                  <span className="placeholder">Waiting for frames…</span>
-                )
-              ) : (
-                <span className="placeholder muted">Webcam off</span>
-              )}
+            <div className="img-grid">
+              <div className="img-pane">
+                <div className="img-pane-label">Raw</div>
+                <div className="img">
+                  {config.webcam_enabled ? (
+                    webcamRawPreview ? (
+                      <img
+                        alt="Webcam — raw preview"
+                        src={`data:image/jpeg;base64,${webcamRawPreview}`}
+                      />
+                    ) : (
+                      <span className="placeholder">Waiting for frames…</span>
+                    )
+                  ) : (
+                    <span className="placeholder muted">Webcam off</span>
+                  )}
+                </div>
+              </div>
+              <div className="img-pane">
+                <div className="img-pane-label">Protected</div>
+                <div className="img">
+                  {config.webcam_enabled ? (
+                    webcamPreview ? (
+                      <img
+                        alt="Webcam — protected preview"
+                        src={`data:image/jpeg;base64,${webcamPreview}`}
+                      />
+                    ) : (
+                      <span className="placeholder">Waiting for frames…</span>
+                    )
+                  ) : (
+                    <span className="placeholder muted">Webcam off</span>
+                  )}
+                </div>
+              </div>
             </div>
           </article>
           <article className="feed-card">
@@ -437,19 +489,41 @@ export function App() {
                   <code>DISPLAY</code> is set. Check the API logs.
                 </p>
               )}
-            <div className="img">
-              {config.screen_share_enabled ? (
-                screenPreview ? (
-                  <img
-                    alt="Screen — protected preview"
-                    src={`data:image/jpeg;base64,${screenPreview}`}
-                  />
-                ) : (
-                  <span className="placeholder">Waiting for frames…</span>
-                )
-              ) : (
-                <span className="placeholder muted">Screen share off</span>
-              )}
+            <div className="img-grid">
+              <div className="img-pane">
+                <div className="img-pane-label">Raw</div>
+                <div className="img">
+                  {config.screen_share_enabled ? (
+                    screenRawPreview ? (
+                      <img
+                        alt="Screen — raw preview"
+                        src={`data:image/jpeg;base64,${screenRawPreview}`}
+                      />
+                    ) : (
+                      <span className="placeholder">Waiting for frames…</span>
+                    )
+                  ) : (
+                    <span className="placeholder muted">Screen share off</span>
+                  )}
+                </div>
+              </div>
+              <div className="img-pane">
+                <div className="img-pane-label">Protected</div>
+                <div className="img">
+                  {config.screen_share_enabled ? (
+                    screenPreview ? (
+                      <img
+                        alt="Screen — protected preview"
+                        src={`data:image/jpeg;base64,${screenPreview}`}
+                      />
+                    ) : (
+                      <span className="placeholder">Waiting for frames…</span>
+                    )
+                  ) : (
+                    <span className="placeholder muted">Screen share off</span>
+                  )}
+                </div>
+              </div>
             </div>
           </article>
         </section>
@@ -548,6 +622,15 @@ export function App() {
               className={`switch ${config.virtual_audio_enabled ? "on" : ""}`}
               aria-pressed={config.virtual_audio_enabled}
               onClick={() => toggle("virtual_audio_enabled")}
+            />
+          </div>
+          <div className="toggle-row">
+            <span>Local audio monitor (speakers)</span>
+            <button
+              type="button"
+              className={`switch ${config.local_audio_monitor_enabled ? "on" : ""}`}
+              aria-pressed={config.local_audio_monitor_enabled}
+              onClick={() => toggle("local_audio_monitor_enabled")}
             />
           </div>
           <div className="select-wrap">
@@ -655,6 +738,15 @@ export function App() {
               onClick={() => toggle("middle_finger_censoring")}
             />
           </div>
+          <div className="toggle-row">
+            <span>Demo: force censoring</span>
+            <button
+              type="button"
+              className={`switch ${config.demo_force_censoring ? "on" : ""}`}
+              aria-pressed={config.demo_force_censoring}
+              onClick={() => toggle("demo_force_censoring")}
+            />
+          </div>
           {config.middle_finger_censoring && !gestureDetectorLoaded && (
             <p className="field-warning">
               Gesture detector unavailable ({gestureDetectorError || "mediapipe missing"}). Install `mediapipe` in backend venv.
@@ -681,6 +773,12 @@ export function App() {
         <div className="panel">
           <h3>Audio status</h3>
           <div className="audio-lines">
+            <div className={`audio-line ${audioOutputOpen ? "ok" : "bad"}`}>
+              {audioOutputOpen ? "✓" : "⛔"} Output stream: {audioOutputOpen ? "open" : "not open"}
+            </div>
+            <div className={`audio-line ${audioBleepActive ? "warn" : "ok"}`}>
+              {audioBleepActive ? "⚠" : "✓"} Bleep: {audioBleepActive ? "active" : "idle"}
+            </div>
             {audioLines.map((a) => (
               <div
                 key={a.id + a.label}

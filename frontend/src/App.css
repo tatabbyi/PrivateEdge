@@ -129,6 +129,33 @@
   min-height: 0;
 }
 
+.img-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+  padding: 0.55rem;
+}
+
+@media (max-width: 780px) {
+  .img-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.img-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.img-pane-label {
+  font-size: 0.7rem;
+  color: var(--pe-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding-left: 0.15rem;
+}
+
 .feed-card > header {
   padding: 0.55rem 0.85rem;
   font-size: 0.8rem;
