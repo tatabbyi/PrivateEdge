@@ -1,4 +1,5 @@
 ﻿# PrivateEdge
+ Made for Qualcomm Edge AI Hackathon 
 
 PrivateEdge is an edge-first moderation and privacy layer for livestreamers and creators. It analyzes webcam, screen-share, and microphone input locally, then applies policy actions (blur/mute/silent mode) before content leaves the device.
 
